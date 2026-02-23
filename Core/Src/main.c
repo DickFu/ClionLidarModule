@@ -62,7 +62,7 @@ extern DMA_HandleTypeDef hdma_usart3_rx;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+void lidar_export_csv(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -132,71 +132,74 @@ int main(void)
   while (1)
   {
     static uint8_t printed_0deg = 0;
-static uint8_t printed_90deg = 0;
-static uint8_t printed_180deg = 0;
-static uint8_t printed_270deg = 0;
+    static uint8_t printed_90deg = 0;
+    static uint8_t printed_180deg = 0;
+    static uint8_t printed_270deg = 0;
 
-if (lidar_data_ready()) {
-  // 重置打印标记
-  printed_0deg = 0;
-  printed_90deg = 0;
-  printed_180deg = 0;
-  printed_270deg = 0;
+    if (lidar_data_ready()) {
+    // 重置打印标记
+      printed_0deg = 0;
+      printed_90deg = 0;
+      printed_180deg = 0;
+      printed_270deg = 0;
+      lidar_export_csv();
+      printf("=========================================\r\n");
+      printf("LD14P Valid Data (ASCII Format)\r\n");
+      printf("=========================================\r\n");
 
-  printf("=========================================\r\n");
-  printf("LD14P Valid Data (ASCII Format)\r\n");
-  printf("=========================================\r\n");
+      for(int i = 0; i < 720; i++)
+      {
+        // 双重筛选：距离>0（有效） + 置信度≥20（可靠）
+        //if(Dataprocess[i].distance > 0 && Dataprocess[i].confidence >= 20)
+        if(Dataprocess[i].distance > 100 &&
+            Dataprocess[i].distance < 8000 &&
+            Dataprocess[i].confidence >= 50)
+        {
+          // 0°角度：只打印一次
+          if(float_abs(Dataprocess[i].angle-0)<2.0 && printed_0deg == 0)
+          {
+            printf("0 deg: Distance=%d mm, Confidence=%d\r\n",
+               Dataprocess[i].distance,
+               Dataprocess[i].confidence);
+            printed_0deg = 1;
+          }
+            // 90°角度：只打印一次
+          else if(float_abs(Dataprocess[i].angle-90)<2.0 && printed_90deg == 0)
+          {
+            printf("90 deg: Distance=%d mm, Confidence=%d\r\n",
+               Dataprocess[i].distance,
+               Dataprocess[i].confidence);
+            printed_90deg = 1;
+          }
+            // 180°角度：只打印一次
+          else if(float_abs(Dataprocess[i].angle-180)<2.0 && printed_180deg == 0)
+          {
+            printf("180 deg: Distance=%d mm, Confidence=%d\r\n",
+               Dataprocess[i].distance,
+               Dataprocess[i].confidence);
+            printed_180deg = 1;
+          }
+          // 270°角度：只打印一次
+          else if(float_abs(Dataprocess[i].angle-270)<2.0 && printed_270deg == 0)
+          {
+            printf("270 deg: Distance=%d mm, Confidence=%d\r\n",
+               Dataprocess[i].distance,
+               Dataprocess[i].confidence);
+            printed_270deg = 1;
+          }
+        }
+      }
 
-  for(int i = 0; i < 720; i++)
-  {
-    // 双重筛选：距离>0（有效） + 置信度≥20（可靠）
-    if(Dataprocess[i].distance > 0 && Dataprocess[i].confidence >= 20)
-    {
-      // 0°角度：只打印一次
-      if(float_abs(Dataprocess[i].angle-0)<2.0 && printed_0deg == 0)
-      {
-        printf("0 deg: Distance=%d mm, Confidence=%d\r\n",
-               Dataprocess[i].distance,
-               Dataprocess[i].confidence);
-        printed_0deg = 1;
-      }
-      // 90°角度：只打印一次
-      else if(float_abs(Dataprocess[i].angle-90)<2.0 && printed_90deg == 0)
-      {
-        printf("90 deg: Distance=%d mm, Confidence=%d\r\n",
-               Dataprocess[i].distance,
-               Dataprocess[i].confidence);
-        printed_90deg = 1;
-      }
-      // 180°角度：只打印一次
-      else if(float_abs(Dataprocess[i].angle-180)<2.0 && printed_180deg == 0)
-      {
-        printf("180 deg: Distance=%d mm, Confidence=%d\r\n",
-               Dataprocess[i].distance,
-               Dataprocess[i].confidence);
-        printed_180deg = 1;
-      }
-      // 270°角度：只打印一次
-      else if(float_abs(Dataprocess[i].angle-270)<2.0 && printed_270deg == 0)
-      {
-        printf("270 deg: Distance=%d mm, Confidence=%d\r\n",
-               Dataprocess[i].distance,
-               Dataprocess[i].confidence);
-        printed_270deg = 1;
-      }
+              // 打印无有效数据的角度
+      printf("-----------------------------------------\r\n");
+      if(printed_0deg == 0) printf("0 deg: No valid data (Distance=0 or low confidence)\r\n");
+      if(printed_90deg == 0) printf("90 deg: No valid data (Distance=0 or low confidence)\r\n");
+      if(printed_180deg == 0) printf("180 deg: No valid data (Distance=0 or low confidence)\r\n");
+      if(printed_270deg == 0) printf("270 deg: No valid data (Distance=0 or low confidence)\r\n");
+      printf("=========================================\r\n\r\n");
+
+      lidar_reset_data_flag();
     }
-  }
-
-  // 打印无有效数据的角度
-  printf("-----------------------------------------\r\n");
-  if(printed_0deg == 0) printf("0 deg: No valid data (Distance=0 or low confidence)\r\n");
-  if(printed_90deg == 0) printf("90 deg: No valid data (Distance=0 or low confidence)\r\n");
-  if(printed_180deg == 0) printf("180 deg: No valid data (Distance=0 or low confidence)\r\n");
-  if(printed_270deg == 0) printf("270 deg: No valid data (Distance=0 or low confidence)\r\n");
-  printf("=========================================\r\n\r\n");
-
-  lidar_reset_data_flag();
-}
 
 
     HAL_Delay(100); // 加延时，避免空转
@@ -249,6 +252,29 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void lidar_export_csv(void)
+{
+  // 1. 打印CSV文件头（Excel识别列名）
+  printf("===== CSV_EXPORT_BEGIN =====\r\n");
+  printf("angle,distance,confidence\r\n");
+
+  // 2. 遍历一圈720个点，只导出有效数据
+  for (int i = 0; i < 720; i++)
+  {
+    // 沿用你原有的筛选条件：距离>0 + 置信度≥20
+    if(Dataprocess[i].distance > 0 && Dataprocess[i].confidence >= 20)
+    {
+      // 格式化输出：角度(保留1位小数),距离,置信度
+      printf("%.1f,%d,%d\r\n",
+             Dataprocess[i].angle,
+             Dataprocess[i].distance,
+             Dataprocess[i].confidence);
+    }
+  }
+
+  // 3. 打印结束标记（方便识别单圈数据结束）
+  printf("===== CSV_EXPORT_END =====\r\n");
+}
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
