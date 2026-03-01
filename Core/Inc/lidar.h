@@ -13,6 +13,7 @@
 #define LD14_HEADER     0x54    // LD14/LD14P 统一帧头
 #define LD14_LENGTH     0x2C    // 帧长度字段
 #define LD14_FRAME_LEN  47      // 一帧固定47字节
+#define LD14_TIMEOUT_MS 200     //雷达超时时间（200ms）
 
 // 雷达单点数据结构体
 typedef struct {

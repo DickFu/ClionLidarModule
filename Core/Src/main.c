@@ -54,6 +54,7 @@ uint16_t rx_index = 0;
 uint8_t rx_buffer[256];
 uint8_t uart1_rx_buffer[256];
 uint8_t uart3_rx_buffer[512];
+
 // 声明DMA句柄
 extern DMA_HandleTypeDef hdma_usart1_rx;
 extern DMA_HandleTypeDef hdma_usart3_rx;
@@ -255,7 +256,7 @@ void SystemClock_Config(void)
 void lidar_export_csv(void)
 {
   // 1. 打印CSV文件头（Excel识别列名）
-  printf("===== CSV_EXPORT_BEGIN =====\r\n");
+  //printf("===== CSV_EXPORT_BEGIN =====\r\n");
   printf("angle,distance,confidence\r\n");
 
   // 2. 遍历一圈720个点，只导出有效数据
