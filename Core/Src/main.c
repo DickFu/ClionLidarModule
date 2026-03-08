@@ -19,14 +19,17 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "dma.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "led_control.h"
 #include <stdio.h>
 #include <string.h>
 #include "lidar.h"
+#include "ws2812.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -105,6 +108,7 @@ int main(void)
   MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_USART3_UART_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   // 开启接收中断
   uint8_t rx_byte;
@@ -126,6 +130,7 @@ int main(void)
   printf("===LiDAR System Ready===\r\n");
   HAL_UARTEx_ReceiveToIdle_DMA(&huart1, uart1_rx_buffer, USART1_BUFFER_SIZE);
   __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+  LED_Control_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -163,6 +168,7 @@ int main(void)
                Dataprocess[i].distance,
                Dataprocess[i].confidence);
             printed_0deg = 1;
+            LED_Control_Update(printed_0deg,Dataprocess[i].distance);
           }
             // 90°角度：只打印一次
           else if(float_abs(Dataprocess[i].angle-90)<2.0 && printed_90deg == 0)
@@ -171,6 +177,7 @@ int main(void)
                Dataprocess[i].distance,
                Dataprocess[i].confidence);
             printed_90deg = 1;
+            LED_Control_Update(printed_90deg,Dataprocess[i].distance);
           }
             // 180°角度：只打印一次
           else if(float_abs(Dataprocess[i].angle-180)<2.0 && printed_180deg == 0)
@@ -179,6 +186,7 @@ int main(void)
                Dataprocess[i].distance,
                Dataprocess[i].confidence);
             printed_180deg = 1;
+            LED_Control_Update(printed_180deg,Dataprocess[i].distance);
           }
           // 270°角度：只打印一次
           else if(float_abs(Dataprocess[i].angle-270)<2.0 && printed_270deg == 0)
@@ -187,10 +195,11 @@ int main(void)
                Dataprocess[i].distance,
                Dataprocess[i].confidence);
             printed_270deg = 1;
+            LED_Control_Update(printed_270deg,Dataprocess[i].distance);
           }
         }
       }
-
+      LED_Control_Run();
               // 打印无有效数据的角度
       printf("-----------------------------------------\r\n");
       if(printed_0deg == 0) printf("0 deg: No valid data (Distance=0 or low confidence)\r\n");
@@ -202,7 +211,8 @@ int main(void)
       lidar_reset_data_flag();
     }
 
-
+    // ws2812_SetAll(128, 128, 128);
+    // ws2812_Show();
     HAL_Delay(100); // 加延时，避免空转
     HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13); // LED心跳
     /* USER CODE END WHILE */

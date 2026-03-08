@@ -77,7 +77,11 @@ enable_language(C ASM)
 # Create an executable object type
 add_executable(${CMAKE_PROJECT_NAME}
         Core/Src/lidar.c
-        Core/Inc/lidar.h)
+        Core/Inc/lidar.h
+        Core/Inc/led_control.h
+        Core/Inc/ws2812.h
+        Core/Src/ws2812.c
+        Core/Src/led_control.c)
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
@@ -106,6 +110,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
         # Add user defined include paths
         Core/Inc
         Core/Src/lidar.c
+
 )
 
 # Add project symbols (macros)
@@ -118,18 +123,18 @@ list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
 
 # ========== 补充链接选项 ==========
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
-        ${CPU_PARAMETERS}          # 指令集参数
-        -T${LINKER_SCRIPT}         # 链接脚本
-        -Wl,--gc-sections          # 移除未使用的段
-        -Wl,-Map=${CMAKE_PROJECT_NAME}.map  # 生成map文件
-        -nostartfiles              # 不链接系统启动文件
-        -Wl,--undefined=_init -Wl,--entry=Reset_Handler
-        -lgcc -lc -lm -lnosys               # 不链接系统标准库
+        ${CPU_PARAMETERS}
+        -T${LINKER_SCRIPT}
+        -Wl,--gc-sections
+        -Wl,-Map=${CMAKE_PROJECT_NAME}.map
+        -nostartfiles
+        -Wl,--undefined=_init
+        -Wl,--entry=Reset_Handler
 )
 
 # Add linked libraries
 target_link_libraries(${CMAKE_PROJECT_NAME}
         stm32cubemx
-
+m
         # Add user defined libraries
 )
