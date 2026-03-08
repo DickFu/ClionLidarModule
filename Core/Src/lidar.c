@@ -5,9 +5,11 @@
  * LD14雷达驱动 - HAL库版本
  * 硬件：USART3, PB10(TX), PB11(RX)
  * 适配：CubeMX生成的DMA+Idle中断框架
+ * 核心修改：1. 匹配lidar.h结构体 2. 修复解析偏移 3. 温和过滤噪声
  ***********************************************/
 #include "lidar.h"
 #include <string.h>
+
 
 // 雷达数据存储
 LiDARFrameTypeDef Pack_Data;
@@ -71,6 +73,7 @@ void LIDAR_Init(void)
     data_process_flag = 0;
     memset(&Pack_Data, 0, sizeof(Pack_Data));
     memset(Dataprocess, 0, sizeof(Dataprocess));
+    memset(PointDataProcess, 0, sizeof(PointDataProcess));
 }
 
 void LIDAR_ReceiveCallback(uint8_t data)
@@ -111,41 +114,76 @@ static uint8_t lidar_calc_crc8(uint8_t* data, uint16_t len)
   */
 void lidar_parse_data(uint8_t* data, uint16_t len)
 {
-    if (len < 47) return; // LD14一帧固定47字节，长度不够直接返回
+    if (len < 1) return;
 
-    // 遍历缓冲区，寻找合法帧头
-    for (uint16_t i = 0; i < len - 47; i++) {
-        // 校验帧头和长度
-        if (data[i] == LD14P_HEADER1 && data[i+1] == LD14P_HEADER2) {
-            // 校验CRC8（前46字节的CRC == 第47字节）
-            uint8_t crc = lidar_calc_crc8(&data[i], 46);
-            if (crc != data[i+46]) continue; // CRC错误，跳过该帧
+    //残帧缓存：解决“帧被切成两次回调”的必丢问题
+    static uint8_t  stash[LD14_FRAME_LEN];
+    static uint16_t stash_len = 0;
 
-            // 解析帧数据（按LD14协议格式）
-            Pack_Data.header = data[i];
-            Pack_Data.ver_len = data[i+1];
-            Pack_Data.speed = (uint16_t)data[i+3] << 8 | data[i+2]; // 转速：高8位+低8位
-            Pack_Data.start_angle = (uint16_t)data[i+5] << 8 | data[i+4]; // 起始角度
+    //拼接缓冲：stash + 本次DMA数据
+    // 注意：这里的 512 来自你 main.c 的 USART3_BUFFER_SIZE
+    static uint8_t buf[512 + LD14_FRAME_LEN];
 
-            // 解析12个点的距离+置信度
-            for (int j = 0; j < 12; j++) {
-                uint16_t offset = i + 6 + j*3; // 每个点占3字节：距离低8、高8、置信度
-                Pack_Data.point[j].distance = (uint16_t)data[offset+1] << 8 | data[offset];
-                Pack_Data.point[j].confidence = data[offset+2];
-            }
+    uint16_t total = 0;
 
-            // 解析结束角度、时间戳
-            Pack_Data.end_angle = (uint16_t)data[i+42] << 8 | data[i+41];
-            Pack_Data.timestamp = (uint16_t)data[i+44] << 8 | data[i+43];
-            Pack_Data.crc8 = data[i+46];
+    // 把上次残余数据拷进buf
+    if (stash_len > 0) {
+        memcpy(buf, stash, stash_len);
+        total = stash_len;
+    }
 
-            // 调用原有数据处理逻辑
-            lidar_data_process();
-            receive_cnt++; // 接收帧数+1
-            break; // 找到一帧合法数据后退出遍历
+    if (len > 512) len = 512;
+
+    memcpy(buf + total, data, len);
+    total += len;
+
+    uint16_t i = 0;
+    while (i + LD14_FRAME_LEN <= total) {
+
+        // 1) 帧头 + 长度字段校验
+        if (buf[i] != LD14_HEADER || buf[i + 1] != LD14_LENGTH) {
+            i++;
+            continue;
         }
+
+        // 2) CRC校验
+        uint8_t calc_crc = lidar_calc_crc8(&buf[i], LD14_FRAME_LEN - 1);
+        if (calc_crc != buf[i + LD14_FRAME_LEN - 1]) {
+            i++; // CRC不对，滑动一个字节继续找
+            continue;
+        }
+
+        // 3) 解析帧数据
+        Pack_Data.header      = buf[i];
+        Pack_Data.ver_len     = buf[i + 1];
+        Pack_Data.speed       = ((uint16_t)buf[i + 3] << 8) | buf[i + 2];
+        Pack_Data.start_angle = ((uint16_t)buf[i + 5] << 8) | buf[i + 4];
+
+        for (int j = 0; j < 12; j++) {
+            uint16_t off = i + 6 + (uint16_t)j * 3;
+            Pack_Data.point[j].distance   = ((uint16_t)buf[off + 1] << 8) | buf[off];
+            Pack_Data.point[j].confidence = buf[off + 2];
+        }
+
+        Pack_Data.end_angle = ((uint16_t)buf[i + 43] << 8) | buf[i + 42];
+        Pack_Data.timestamp = ((uint16_t)buf[i + 45] << 8) | buf[i + 44];
+        Pack_Data.crc8      = buf[i + 46];
+
+        // 4) 数据处理
+        lidar_data_process();
+        receive_cnt++;
+        data_process_flag = 1;
+
+        i += LD14_FRAME_LEN;
+    }
+
+    stash_len = total - i;
+    if (stash_len > 0) {
+        if (stash_len > LD14_FRAME_LEN) stash_len = LD14_FRAME_LEN; // 防御
+        memcpy(stash, buf + i, stash_len);
     }
 }
+
 
 /**
   * @brief  原有数据处理逻辑（保持不变）
@@ -166,18 +204,34 @@ void lidar_data_process(void)
 
     // 计算每个点的实际角度
     for (int m = 0; m < 12; m++) {
-        area_angle[m] = start_angle + (end_angle - start_angle) / 12.0f * m;
+        area_angle[m] = start_angle + (end_angle - start_angle) / 11.0f * m;
         if (area_angle[m] > 360.0f) {
             area_angle[m] -= 360.0f;
         }
     }
 
-    // 存储解析后的点数据
-    for (int n = 0; n < 12; n++) {
+    //存储解析后的点数据
+    for (n = 0; n < 12; n++) {
         Dataprocess[data_cnt + n].angle = area_angle[n];
-        Dataprocess[data_cnt + n].distance = Pack_Data.point[n].distance;
-        Dataprocess[data_cnt + n].confidence = Pack_Data.point[n].confidence;
+        //防止越界
+        uint16_t idx = data_cnt + (uint16_t)n;
+        if (idx >= 800) idx %= 800;
+
+        Dataprocess[idx].angle = area_angle[n];
+        // 温和过滤：只剔除无效点（减少散点）
+        if (Pack_Data.point[n].distance > 0 && Pack_Data.point[n].confidence > 20) {
+            Dataprocess[data_cnt + n].distance = Pack_Data.point[n].distance;
+            Dataprocess[data_cnt + n].confidence = Pack_Data.point[n].confidence;
+        } else {
+            Dataprocess[data_cnt + n].distance = 0;
+            Dataprocess[data_cnt + n].confidence = 0;
+        }
     }
+    // for (n = 0; n < 12; n++) {
+    //     Dataprocess[data_cnt + n].angle = area_angle[n];
+    //     Dataprocess[data_cnt + n].distance = Pack_Data.point[n].distance;
+    //     Dataprocess[data_cnt + n].confidence = Pack_Data.point[n].confidence;
+    // }
 
     data_cnt += 12;
     if (data_cnt >= 720) {  // 一圈约720个点（60帧×12点）
